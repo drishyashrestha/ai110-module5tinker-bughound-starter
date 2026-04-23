@@ -2,6 +2,21 @@ from bughound_agent import BugHoundAgent
 from llm_client import MockClient
 
 
+class WellFormedAnalyzerClient:
+    def complete(self, system_prompt: str, user_prompt: str) -> str:
+        if "Return ONLY valid JSON" in system_prompt:
+            return '[{"type":"Reliability","severity":"High","msg":"Bare except detected."}]'
+        return "# rewritten code"
+
+
+class MalformedAnalyzerClient:
+    def complete(self, system_prompt: str, user_prompt: str) -> str:
+        if "Return ONLY valid JSON" in system_prompt:
+            # Parseable JSON but invalid issue schema (empty message + bad severity).
+            return '[{"type":"Reliability","severity":"Critical","msg":""}]'
+        return "# rewritten code"
+
+
 def test_workflow_runs_in_offline_mode_and_returns_shape():
     agent = BugHoundAgent(client=None)  # heuristic-only
     code = "def f():\n    print('hi')\n    return True\n"
@@ -46,4 +61,24 @@ def test_mock_client_forces_llm_fallback_to_heuristics_for_analysis():
 
     assert any(issue.get("type") == "Code Quality" for issue in result["issues"])
     # Ensure we logged the fallback path
+    assert any("Falling back to heuristics" in entry.get("message", "") for entry in result["logs"])
+
+
+def test_well_formed_llm_analysis_is_accepted():
+    agent = BugHoundAgent(client=WellFormedAnalyzerClient())
+    code = "def f():\n    try:\n        return 1/0\n    except:\n        return None\n"
+    result = agent.run(code)
+
+    assert any(issue.get("type") == "Reliability" for issue in result["issues"])
+    assert all(issue.get("severity") in {"Low", "Medium", "High"} for issue in result["issues"])
+
+
+def test_parseable_but_invalid_llm_analysis_falls_back_to_heuristics():
+    agent = BugHoundAgent(client=MalformedAnalyzerClient())
+    code = "def f():\n    print('hi')\n    try:\n        return 1/0\n    except:\n        return None\n"
+    result = agent.run(code)
+
+    # Heuristic fallback should still detect known patterns.
+    assert any(issue.get("type") == "Code Quality" for issue in result["issues"])
+    assert any(issue.get("type") == "Reliability" for issue in result["issues"])
     assert any("Falling back to heuristics" in entry.get("message", "") for entry in result["logs"])

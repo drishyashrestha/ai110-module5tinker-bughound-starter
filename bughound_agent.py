@@ -185,16 +185,29 @@ class BugHoundAgent:
 
         return None
 
-    def _normalize_issues(self, arr: List[Any]) -> List[Dict[str, str]]:
+    def _normalize_issues(self, arr: List[Any]) -> Optional[List[Dict[str, str]]]:
+        allowed_severities = {"low", "medium", "high"}
         issues: List[Dict[str, str]] = []
         for item in arr:
             if not isinstance(item, dict):
-                continue
+                return None
+
+            issue_type = str(item.get("type", "")).strip()
+            severity_raw = str(item.get("severity", "")).strip()
+            msg = str(item.get("msg", "")).strip()
+
+            if not issue_type or not msg:
+                return None
+
+            severity_lower = severity_raw.lower()
+            if severity_lower not in allowed_severities:
+                return None
+
             issues.append(
                 {
-                    "type": str(item.get("type", "Issue")),
-                    "severity": str(item.get("severity", "Unknown")),
-                    "msg": str(item.get("msg", "")).strip(),
+                    "type": issue_type,
+                    "severity": severity_lower.title(),
+                    "msg": msg,
                 }
             )
         return issues
